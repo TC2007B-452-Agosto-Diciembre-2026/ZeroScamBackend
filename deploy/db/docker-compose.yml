@@ -1,0 +1,44 @@
+# PC de la BASE DE DATOS: solo MySQL.
+#   cd deploy/db
+#   copy .env.example .env   (y pon las passwords)
+#   docker compose up -d
+# Ver DESPLIEGUE.md.
+
+name: zeroscam-db
+
+services:
+  db:
+    image: mysql:8.4
+    container_name: zeroscam-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Falta MYSQL_ROOT_PASSWORD en .env}
+      # Sin esto la imagen crea root@'%' y root entra desde la red. Con
+      # 127.0.0.1 (más root@localhost, que siempre existe) solo entra desde
+      # dentro del contenedor: el healthcheck y docker exec. Lo que llega por
+      # el puerto publicado viene de la red de Docker, no de 127.0.0.1.
+      MYSQL_ROOT_HOST: 127.0.0.1
+      MYSQL_DATABASE: ZeroScam
+      # Usuario con el que se conecta la API desde la PC del back.
+      MYSQL_USER: zeroscam
+      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD:?Falta MYSQL_APP_PASSWORD en .env}
+      TZ: ${TZ:-America/Mexico_City}
+    volumes:
+      - db-data:/var/lib/mysql
+      - ../../docker/mysql.cnf:/etc/mysql/conf.d/zeroscam.cnf:ro
+      # Solo corre la primera vez, cuando el volumen está vacío
+      - ../../db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    ports:
+      # MySQL no ve la IP real de quien conecta (Docker la cambia), así que
+      # quién entra lo decide el firewall de Windows: solo la PC del back.
+      # MYSQL_BIND = IP de esta PC para no escuchar en otras interfaces.
+      - "${MYSQL_BIND:-0.0.0.0}:${MYSQL_PORT:-3306}:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  db-data:
