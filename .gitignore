@@ -62,3 +62,6 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # Avatares de la app (solo salen por GET /account/avatar/:id)
 /storage
 scripts/datos-demo/fechas-demo.sql
+
+# Respaldos automáticos de la base (RNF06): traen datos de usuarios.
+/deploy/db/respaldos/
