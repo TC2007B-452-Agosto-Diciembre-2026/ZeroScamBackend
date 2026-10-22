@@ -148,6 +148,27 @@ const cache = new Map<string, { date: Date; at: number }>();
 async function registrationDate(domain: string): Promise<Date | undefined> {
   const hit = cache.get(domain);
   if (hit && Date.now() - hit.at < CACHE_TTL) return hit.date;
+  // Si ya hay una consulta de este dominio en curso, se espera esa en vez de
+  // abrir otra: con muchas URLs nuevas del mismo sitio a la vez, todas
+  // comparten una sola pregunta al registro (RNF01).
+  let pending = lookups.get(domain);
+  if (!pending) {
+    pending = lookupDate(domain).finally(() => lookups.delete(domain));
+    lookups.set(domain, pending);
+  }
+  return pending;
+}
+
+/** Consultas en curso por dominio. */
+const lookups = new Map<string, Promise<Date | undefined>>();
+
+/** Olvida lo recordado y lo que está en curso; solo lo usan las pruebas. */
+export function clearDomainAgeCache(): void {
+  cache.clear();
+  lookups.clear();
+}
+
+async function lookupDate(domain: string): Promise<Date | undefined> {
   const whoisServer = WHOIS_SERVERS[domain.split('.').pop()!];
   const date = whoisServer
     ? await fetchWhoisDate(domain, whoisServer)
