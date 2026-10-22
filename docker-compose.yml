@@ -43,6 +43,7 @@ services:
     environment:
       DATABASE_URL: mysql://root:${MYSQL_ROOT_PASSWORD}@db:3306/ZeroScam
       JWT_SECRET: ${JWT_SECRET:?Falta JWT_SECRET en .env (openssl rand -base64 48)}
+      DATA_KEY: ${DATA_KEY:?Falta DATA_KEY en .env (openssl rand -base64 32)}
       # Origen del panel que puede leer la API desde el navegador
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3001}
       SMTP_URL: smtp://mailpit:1025

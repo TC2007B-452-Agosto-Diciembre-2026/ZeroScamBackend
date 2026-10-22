@@ -14,6 +14,12 @@ import {
   claimIdempotencyKey,
   pruneIdempotencyKeys,
 } from '../reports/idempotency';
+import {
+  decryptField,
+  decryptOptional,
+  encryptField,
+  encryptOptional,
+} from '../common/field-crypto';
 
 const PUBLIC = "('VALIDADO', 'CANALIZADO')";
 
@@ -248,14 +254,14 @@ export class CommunityRepository {
         [
           ownerId,
           input.fraudTypeId,
-          input.description,
+          encryptField(input.description),
           input.incidentDate,
           input.title,
           input.city,
           input.anonymous,
           input.affected,
           input.otherType ?? null,
-          input.suspiciousText ?? null,
+          encryptOptional(input.suspiciousText) ?? null,
         ],
       );
       const id = result.insertId;
@@ -298,14 +304,14 @@ export class CommunityRepository {
          WHERE id_reporte = ?`,
         [
           input.fraudTypeId,
-          input.description,
+          encryptField(input.description),
           input.incidentDate,
           input.title,
           input.city,
           input.anonymous,
           input.affected,
           input.otherType ?? null,
-          input.suspiciousText ?? null,
+          encryptOptional(input.suspiciousText) ?? null,
           id,
         ],
       );
@@ -615,14 +621,15 @@ export class CommunityRepository {
         otherType: row.tipo_otro ?? undefined,
         status: row.nombre_estado,
         title: row.titulo ?? undefined,
-        description: row.descripcion_incidente,
+        description: decryptField(row.descripcion_incidente as string),
         incidentDate: row.fecha_incidente,
         riskLevel: row.nivel_riesgo_asignado,
         createdAt: row.fecha_creacion,
         anonymous: Boolean(row.es_anonimo),
         affected: row.afectado,
         city: row.ciudad ?? undefined,
-        suspiciousText: row.texto_sospechoso ?? undefined,
+        suspiciousText:
+          decryptOptional(row.texto_sospechoso as string | null) ?? undefined,
         confirmations: Number(row.confirmaciones),
         comments: Number(row.comentarios),
         confirmedByViewer: Boolean(row.confirmado),
