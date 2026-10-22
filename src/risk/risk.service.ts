@@ -7,10 +7,20 @@ import { checkCommunity } from './checks/community.check';
 import { checkDomainAge } from './checks/domain-age.check';
 import { checkHeuristics } from './checks/heuristics.check';
 import { AnalyzeResponseDto, RiskCheckDto } from './dto/analyze-response.dto';
-import { RiskResponseDto } from './dto/risk-response.dto';
+import { AnonymousReportDto, RiskResponseDto } from './dto/risk-response.dto';
 import { RiskRepository } from './risk.repository';
 import { evaluate, shouldAlert } from './scoring';
 import { hostnameOf, normalizeUrl, resolveTarget } from './target';
+import type { Target } from './target';
+
+/** Lo que se averigua hacia afuera de una URL: se comparte entre quienes la piden a la vez. */
+interface Gathered {
+  target: Target;
+  certificate: Awaited<ReturnType<typeof checkCertificate>>;
+  domainAge: Awaited<ReturnType<typeof checkDomainAge>>;
+  blacklist: Awaited<ReturnType<typeof checkBlacklist>>;
+  reports: AnonymousReportDto[];
+}
 
 /** Horas que un análisis guardado se regresa sin repetirlo. */
 const CACHE_HOURS = 24;
@@ -44,6 +54,13 @@ export class RiskService {
    * con varias instancias del API cada una cuenta los suyos.
    */
   private readonly recentAnalyses = new Map<string, number[]>();
+
+  /**
+   * Verificaciones externas en curso por URL normalizada. Si cien personas
+   * piden el mismo enlace nuevo a la vez, se consulta una sola vez y todas
+   * reciben ese resultado, en vez de abrir cien conexiones iguales (RNF01).
+   */
+  private readonly gathering = new Map<string, Promise<Gathered>>();
 
   constructor(private readonly repository: RiskRepository) {}
 
@@ -125,18 +142,8 @@ export class RiskService {
     }
 
     this.takeAnalysisSlot(userId);
-    const target = await resolveTarget(url);
-    // Las verificaciones no dependen entre sí: van en paralelo para que la
-    // respuesta tarde lo que la más lenta, no la suma (RNF01). Ninguna lanza
-    // error si el sitio o un servicio externo no contesta.
-    const [certificate, domainAge, blacklist, reports] = await Promise.all([
-      checkCertificate(target),
-      checkDomainAge(target),
-      checkBlacklist(target),
-      // Por host y no por URL completa: cuentan los reportes de cualquier
-      // página del mismo sitio.
-      this.repository.findValidatedReportsByHost(target.hostname),
-    ]);
+    const { target, certificate, domainAge, blacklist, reports } =
+      await this.gather(url, normalized.url);
     const evaluation = evaluate([
       checkHeuristics(target),
       certificate,
@@ -213,6 +220,42 @@ export class RiskService {
         );
       }
     }
+  }
+
+  /**
+   * Averigua hacia afuera lo de una URL, o se une a quien ya lo está
+   * averiguando.
+   *
+   * @param url - URL a analizar.
+   * @param key - La misma URL, normalizada: dos enlaces que solo difieren en
+   * la cadena de consulta comparten el trabajo.
+   */
+  private gather(url: string, key: string): Promise<Gathered> {
+    let shared = this.gathering.get(key);
+    if (!shared) {
+      shared = this.collect(url).finally(() => {
+        this.gathering.delete(key);
+      });
+      this.gathering.set(key, shared);
+    }
+    return shared;
+  }
+
+  /** Resuelve el DNS y corre las verificaciones externas de una URL. */
+  private async collect(url: string): Promise<Gathered> {
+    const target = await resolveTarget(url);
+    // Las verificaciones no dependen entre sí: van en paralelo para que la
+    // respuesta tarde lo que la más lenta, no la suma (RNF01). Ninguna lanza
+    // error si el sitio o un servicio externo no contesta.
+    const [certificate, domainAge, blacklist, reports] = await Promise.all([
+      checkCertificate(target),
+      checkDomainAge(target),
+      checkBlacklist(target),
+      // Por host y no por URL completa: cuentan los reportes de cualquier
+      // página del mismo sitio.
+      this.repository.findValidatedReportsByHost(target.hostname),
+    ]);
+    return { target, certificate, domainAge, blacklist, reports };
   }
 
   /**

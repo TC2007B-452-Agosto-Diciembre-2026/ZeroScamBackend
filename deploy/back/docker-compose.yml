@@ -25,6 +25,7 @@ services:
       # Origen del panel que puede leer la API desde el navegador
       CORS_ORIGINS: ${CORS_ORIGINS:-http://192.168.20.10:3001}
       JWT_SECRET: ${JWT_SECRET:?Falta JWT_SECRET en .env (openssl rand -base64 48)}
+      DATA_KEY: ${DATA_KEY:?Falta DATA_KEY en .env (openssl rand -base64 32)}
       SMTP_URL: smtp://mailpit:1025
       MAIL_FROM: ${MAIL_FROM:-}
       SAFE_BROWSING_API_KEY: ${SAFE_BROWSING_API_KEY:-}
@@ -50,8 +51,44 @@ services:
     container_name: zeroscam-admin
     ports:
       - "${BIND:-0.0.0.0}:${ADMIN_PORT:-3001}:3001"
+    # El panel también reporta su estado (RNF05): docker ps muestra healthy.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     depends_on:
       - api
+    restart: unless-stopped
+
+  # Vigilante de disponibilidad (RNF05): consulta /health cada 30 s y avisa si
+  # el servicio no contesta 3 veces seguidas, y cuando vuelve. La red del
+  # proyecto es local, así que el aviso es un correo a Mailpit
+  # (http://localhost:8025) y queda en el registro: docker logs zeroscam-monitor
+  monitor:
+    image: zeroscam-api:latest
+    container_name: zeroscam-monitor
+    command: ["node", "scripts/vigilar-salud.mjs"]
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 50
+    mem_limit: 128m
+    environment:
+      HEALTH_URL: http://api:3000/health
+      HEALTH_INTERVAL_SECONDS: ${HEALTH_INTERVAL_SECONDS:-30}
+      HEALTH_FAILURES: ${HEALTH_FAILURES:-3}
+      ALERT_TO: ${ALERT_TO:-equipo@zeroscam.local}
+      SMTP_URL: smtp://mailpit:1025
+      MAIL_FROM: ${MAIL_FROM:-}
+      TZ: ${TZ:-America/Mexico_City}
+    healthcheck:
+      disable: true
+    depends_on:
+      - api
+      - mailpit
     restart: unless-stopped
 
 volumes:

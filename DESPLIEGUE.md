@@ -162,8 +162,26 @@ Solo agrega la tabla `Reporte_Idempotencia`; no toca datos y se puede correr má
 | Ver logs | back | `docker compose logs -f api` (o `admin`) |
 | Cambió la IP del back | back | Cambia `NEXT_PUBLIC_API_URL` y `docker compose up -d --build` (va dentro del panel) |
 | Apagar / prender | cualquiera | `docker compose down` / `docker compose up -d` (los datos se conservan) |
-| Respaldo | base | `docker exec zeroscam-db sh -c 'mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" ZeroScam' > respaldo.sql` |
+| Respaldo (automático) | base | Ya corre solo: el contenedor `zeroscam-respaldo` hace un volcado cada 24 h en `deploy\db\respaldos` y borra los de más de 30 días. Ver: `docker logs zeroscam-respaldo`. Cópialos a otra PC o disco de vez en cuando. |
+| Respaldo ahora mismo | base | `docker exec -e RESPALDO_UNA_VEZ=1 zeroscam-respaldo bash /respaldo.sh` |
+| Restaurar un respaldo | base | Ver «Restaurar un respaldo» más abajo. |
+| Saber si el servicio se cayó | back | El contenedor `zeroscam-monitor` consulta `/health` cada 30 s y, tras 3 fallas seguidas y cuando vuelve, manda un correo a Mailpit (`http://localhost:8025`); también queda en `docker logs zeroscam-monitor`. |
+| Cifrar los reportes que ya estaban en la base | back | Una sola vez, tras actualizar: respalda, y dentro de la carpeta del backend `npm run build`, `npm run cifrar:campos` (solo cuenta) y `npm run cifrar:campos -- --aplicar`. Guarda `DATA_KEY`: sin ella no se pueden leer. |
 | Borrar todo y volver a los datos de prueba | base | `docker compose down -v` y `docker compose up -d` (**borra todos los datos**) |
+
+## Restaurar un respaldo
+
+Los respaldos están en `deploy\db\respaldos` (`ZeroScam-AAAA-MM-DD_HHMM.sql.gz`). Prueba primero en una base aparte para no pisar la buena:
+
+```powershell
+cd deploy\db
+docker exec zeroscam-db sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -e "CREATE DATABASE prueba_restaurar"'
+docker exec zeroscam-respaldo bash -c 'gunzip -c /respaldos/ARCHIVO.sql.gz | MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -h 127.0.0.1 -uroot prueba_restaurar'
+docker exec zeroscam-db sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -e "SELECT COUNT(*) FROM prueba_restaurar.Reporte"'
+docker exec zeroscam-db sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -e "DROP DATABASE prueba_restaurar"'
+```
+
+Para restaurar de verdad, cambia `prueba_restaurar` por `ZeroScam` (reemplaza los datos actuales). La descripción y el texto sospechoso de los reportes van cifrados: guarda `DATA_KEY` junto con los respaldos, sin ella no se pueden leer.
 
 ## Si algo falla
 

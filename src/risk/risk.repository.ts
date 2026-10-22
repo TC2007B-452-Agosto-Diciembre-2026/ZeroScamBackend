@@ -7,6 +7,7 @@ import { DB_POOL } from '../database/database.module';
 import { AnonymousReportDto, RiskSiteDto } from './dto/risk-response.dto';
 import { Evaluation } from './scoring';
 import { hostnameOf } from './target';
+import { decryptField } from '../common/field-crypto';
 
 /** Una fila de `SitioWeb_URL` con el análisis que tiene guardado. */
 export interface StoredEvaluation {
@@ -76,7 +77,7 @@ export class RiskRepository {
     );
     return rows.map((row) => ({
       fraudType: row.nombre_tipo,
-      description: row.descripcion_incidente,
+      description: decryptField(row.descripcion_incidente as string),
       incidentDate: (row.fecha_incidente as Date).toISOString(),
       riskLevel: row.nivel_riesgo_asignado,
     }));
@@ -111,7 +112,7 @@ export class RiskRepository {
       if (hostnameOf(row.url_texto) !== hostname) continue;
       reports.set(row.id_reporte, {
         fraudType: row.nombre_tipo,
-        description: row.descripcion_incidente,
+        description: decryptField(row.descripcion_incidente as string),
         incidentDate: (row.fecha_incidente as Date).toISOString(),
         riskLevel: row.nivel_riesgo_asignado,
       });

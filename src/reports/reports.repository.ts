@@ -10,6 +10,7 @@ import type {
 } from 'mysql2/promise';
 import { DB_POOL } from '../database/database.module';
 import { Report, ReportHistoryEntry } from './entities/report.entity';
+import { decryptField, encryptField } from '../common/field-crypto';
 
 const COLUMNS =
   'r.id_reporte, r.id_usuario, r.id_tipo_fraude, t.nombre_tipo, e.nombre_estado, ' +
@@ -111,8 +112,10 @@ export class ReportsRepository {
       params.push(toMysqlDate(query.to));
     }
     if (query.q) {
-      where.push('r.descripcion_incidente LIKE ?');
-      params.push(`%${query.q}%`);
+      // La descripción se guarda cifrada (RNF02) y no se puede buscar con LIKE;
+      // el texto se busca en el título y en las descripciones viejas sin cifrar.
+      where.push('(r.descripcion_incidente LIKE ? OR r.titulo LIKE ?)');
+      params.push(`%${query.q}%`, `%${query.q}%`);
     }
     const [rows] = await this.pool.query<RowDataPacket[]>(
       `SELECT ${COLUMNS} FROM ${FROM} WHERE ${where.join(' AND ')}
@@ -227,7 +230,7 @@ export class ReportsRepository {
         [
           ownerId,
           report.fraudTypeId,
-          report.description,
+          encryptField(report.description!),
           toMysqlDate(report.incidentDate!),
         ],
       );
@@ -268,7 +271,7 @@ export class ReportsRepository {
     }
     if (changes.description !== undefined) {
       sets.push('descripcion_incidente = ?');
-      params.push(changes.description);
+      params.push(encryptField(changes.description));
     }
     if (changes.incidentDate !== undefined) {
       sets.push('fecha_incidente = ?');
@@ -511,7 +514,7 @@ function toEntity(row: any): Report {
   report.fraudTypeId = row.id_tipo_fraude;
   report.fraudType = row.nombre_tipo;
   report.status = row.nombre_estado;
-  report.description = row.descripcion_incidente;
+  report.description = decryptField(row.descripcion_incidente as string);
   report.incidentDate = row.fecha_incidente;
   report.riskLevel = row.nivel_riesgo_asignado;
   report.createdAt = row.fecha_creacion;

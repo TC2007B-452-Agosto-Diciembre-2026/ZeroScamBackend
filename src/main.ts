@@ -8,11 +8,14 @@ import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { AppModule } from './app.module';
 import { jwtSecret } from './auth/jwt';
+import { dataKey } from './common/field-crypto';
 
 async function bootstrap() {
   // Sin llave para firmar tokens no tiene caso arrancar: falla aquí, con un
   // mensaje claro, y no en el primer login.
   jwtSecret();
+  // Falla al arrancar si falta la llave que cifra los textos de los reportes (RNF02).
+  dataKey();
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   // No anunciar "X-Powered-By: Express" (alerta de ZAP 10037).
   app.disable('x-powered-by');

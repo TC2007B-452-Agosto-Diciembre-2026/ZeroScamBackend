@@ -1,5 +1,8 @@
+import type { Target } from '../target';
 import {
   ageResult,
+  checkDomainAge,
+  clearDomainAgeCache,
   parseWhoisDate,
   registrableDomain,
 } from './domain-age.check';
@@ -60,5 +63,66 @@ describe('ageResult', () => {
     const result = ageResult(undefined, 'No se pudo consultar', NOW);
     expect(result.passed).toBe(true);
     expect(result.points).toBe(0);
+  });
+});
+
+/** La dirección de una llamada a `fetch`, sea texto, URL o Request. */
+function urlOf(input: unknown): string {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.href;
+  return (input as Request).url;
+}
+
+describe('checkDomainAge: memoria y consultas compartidas (RNF01)', () => {
+  const rdap = (date: string) =>
+    JSON.stringify({
+      events: [{ eventAction: 'registration', eventDate: date }],
+    });
+  let fetchMock: jest.SpiedFunction<typeof fetch>;
+  const rdapCalls = () =>
+    fetchMock.mock.calls.filter(([input]) => urlOf(input).includes('/domain/'));
+  const targetOf = (hostname: string) =>
+    ({ hostname, url: `https://${hostname}/` }) as Target;
+
+  beforeEach(() => {
+    clearDomainAgeCache();
+    fetchMock = jest.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      if (urlOf(input).includes('data.iana.org')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              services: [[['com'], ['https://rdap.example/']]],
+            }),
+          ),
+        );
+      }
+      return Promise.resolve(new Response(rdap('2020-01-01T00:00:00Z')));
+    });
+  });
+
+  afterEach(() => {
+    fetchMock.mockRestore();
+  });
+
+  it('varias URLs del mismo dominio a la vez comparten una sola consulta', async () => {
+    const results = await Promise.all(
+      Array.from({ length: 25 }, () => checkDomainAge(targetOf('ejemplo.com'))),
+    );
+    expect(rdapCalls()).toHaveLength(1);
+    expect(
+      results.every((r) => r.detail.includes('ejemplo.com se registró hace')),
+    ).toBe(true);
+  });
+
+  it('la segunda vez sale de la memoria', async () => {
+    await checkDomainAge(targetOf('ejemplo.com'));
+    await checkDomainAge(targetOf('www.ejemplo.com'));
+    expect(rdapCalls()).toHaveLength(1);
+  });
+
+  it('un dominio distinto sí se pregunta', async () => {
+    await checkDomainAge(targetOf('ejemplo.com'));
+    await checkDomainAge(targetOf('otro.com'));
+    expect(rdapCalls()).toHaveLength(2);
   });
 });

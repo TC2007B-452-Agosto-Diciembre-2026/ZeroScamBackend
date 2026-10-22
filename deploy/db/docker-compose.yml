@@ -40,5 +40,30 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  # Respaldo automático (RNF06): un volcado cada 24 h en ./respaldos y se
+  # borran los de más de 30 días. Comparte la red de `db`, así que entra como
+  # root por 127.0.0.1 (root no entra desde la red). Restaurar: DESPLIEGUE.md.
+  respaldo:
+    image: mysql:8.4
+    container_name: zeroscam-respaldo
+    entrypoint: ["bash", "/respaldo.sh"]
+    network_mode: "service:db"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Falta MYSQL_ROOT_PASSWORD en .env}
+      MYSQL_DATABASE: ZeroScam
+      RESPALDO_CADA_HORAS: ${RESPALDO_CADA_HORAS:-24}
+      RESPALDO_DIAS: ${RESPALDO_DIAS:-30}
+      TZ: ${TZ:-America/Mexico_City}
+    volumes:
+      - ./respaldo.sh:/respaldo.sh:ro
+      - ./respaldos:/respaldos
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    restart: unless-stopped
+
 volumes:
   db-data:

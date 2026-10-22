@@ -27,6 +27,8 @@ ENV NODE_ENV=production
 COPY --from=builder --chown=node:node /app/package.json ./
 COPY --from=deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /app/dist ./dist
+# Scripts que corren dentro de la imagen: vigilar-salud (monitor) y cifrar-campos.
+COPY --from=builder --chown=node:node /app/scripts ./scripts
 
 # Evidencias y avatares: se montan como volúmenes en docker-compose.yml.
 # Se crean aquí para que el volumen herede el dueño `node`.
